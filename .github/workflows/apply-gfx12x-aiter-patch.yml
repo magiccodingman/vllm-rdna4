@@ -1,0 +1,49 @@
+name: Apply GFX12X AITER support patch
+
+on:
+  push:
+    branches:
+      - enable-aiter-gfx12x
+
+permissions:
+  contents: write
+
+jobs:
+  apply-patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: enable-aiter-gfx12x
+
+      - name: Apply exact source change
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("vllm/_aiter_ops.py")
+          source = path.read_text()
+
+          old_import = "        from vllm.platforms.rocm import on_mi3xx\n"
+          new_import = "        from vllm.platforms.rocm import on_gfx12x, on_mi3xx\n"
+          old_return = "        return on_mi3xx()\n"
+          new_return = "        return on_mi3xx() or on_gfx12x()\n"
+
+          if source.count(old_import) != 1:
+              raise SystemExit(f"Expected exactly one target import, found {source.count(old_import)}")
+          if source.count(old_return) != 1:
+              raise SystemExit(f"Expected exactly one target return, found {source.count(old_return)}")
+
+          source = source.replace(old_import, new_import, 1)
+          source = source.replace(old_return, new_return, 1)
+          path.write_text(source)
+
+      - name: Remove one-shot workflow and commit
+        run: |
+          rm .github/workflows/apply-gfx12x-aiter-patch.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vllm/_aiter_ops.py .github/workflows/apply-gfx12x-aiter-patch.yml
+          git commit -m "Enable AITER support detection on GFX12X"
+          git push origin HEAD:enable-aiter-gfx12x
