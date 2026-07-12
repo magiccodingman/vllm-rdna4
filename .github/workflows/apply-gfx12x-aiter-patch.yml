@@ -4,12 +4,18 @@ on:
   push:
     branches:
       - enable-aiter-gfx12x
+  pull_request:
+    branches:
+      - rdna4-dev
+    types:
+      - opened
 
 permissions:
   contents: write
 
 jobs:
   apply-patch:
+    if: github.head_ref == 'enable-aiter-gfx12x' || github.ref_name == 'enable-aiter-gfx12x'
     runs-on: ubuntu-latest
     steps:
       - name: Check out feature branch
