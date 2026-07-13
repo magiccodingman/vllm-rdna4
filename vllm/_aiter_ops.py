@@ -7,6 +7,7 @@ import torch
 from torch._ops import OpOverload
 
 import vllm.envs as envs
+from vllm.logger import init_logger
 from vllm.platforms import current_platform
 from vllm.utils.import_utils import PlaceholderModule
 from vllm.utils.torch_utils import direct_register_custom_op
@@ -19,6 +20,8 @@ try:
     import pandas as pd
 except ImportError:
     pd = PlaceholderModule("pandas")
+
+logger = init_logger(__name__)
 
 # fp8_dtype is not cached.
 # on ROCm the fp8_dtype always calls is_fp8_fnuz
@@ -52,7 +55,7 @@ IS_AITER_FOUND = is_aiter_found()
 def is_aiter_found_and_supported() -> bool:
     """Check if AITER library is available and platform supports it.
 
-    Checks: platform (ROCm), device arch (gfx9), and library existence.
+    Checks: platform (ROCm), supported device arch (MI3xx or gfx12x), and library existence.
     Does NOT check environment variables - that's handled by rocm_aiter_ops.is_enabled().
 
     This function determines if aiter CAN be used, not if it SHOULD be used.
@@ -66,10 +69,24 @@ def is_aiter_found_and_supported() -> bool:
     VLLM_ROCM_USE_AITER=0, while preventing unwanted JIT warnings for auto-discovery.
     """
     if current_platform.is_rocm() and IS_AITER_FOUND:
-        from vllm.platforms.rocm import on_mi3xx
+        from vllm.platforms.rocm import on_gfx12x, on_mi3xx
 
-        return on_mi3xx()
+        return on_mi3xx() or on_gfx12x()
     return False
+
+
+def is_aiter_sampler_supported() -> bool:
+    """Whether the installed AITER sampler can run on this architecture.
+
+    AITER supports a growing set of gfx12 kernels, but its sampling JIT still
+    rejects gfx1201. Keep the rest of AITER available on RDNA4 while selecting
+    vLLM's native sampler until that upstream kernel gains gfx12 support.
+    """
+    if not is_aiter_found_and_supported():
+        return False
+    from vllm.platforms.rocm import on_gfx12x
+
+    return not on_gfx12x()
 
 
 @functools.cache
@@ -80,7 +97,13 @@ def _load_gemm_tuned_configs(
         df = pd.read_csv(csv_path).drop_duplicates()
         df = df[df["q_dtype_w"] == str(q_dtype_w)]
         return set(zip(df["N"].astype(int), df["K"].astype(int), df["M"].astype(int)))
-    except Exception:
+    except Exception as exc:
+        logger.debug_once(
+            "Unable to load AITER tuned GEMM configurations from %s: %r. "
+            "The affected kernels will fall back to another implementation.",
+            csv_path,
+            exc,
+        )
         return set()
 
 
@@ -97,7 +120,7 @@ def _check_kernel_tuned(N: int, K: int, q_dtype_w: torch.dtype, csv_path: str) -
 
 def if_aiter_supported(func: Callable) -> Callable:
     """Decorator that only executes the function if
-    ROCm AITER package is supported and enabled on gfx9 archs.
+    ROCm AITER package is supported on the current AMD architecture.
     """
 
     @functools.wraps(func)
@@ -1501,12 +1524,12 @@ class rocm_aiter_ops:
 
     Check Functions:
         All check functions (is_*_enabled) are decorated with @if_aiter_supported,
-        which verifies: (1) platform is ROCm, (2) device arch is gfx9, and
+        which verifies: (1) platform is ROCm, (2) device arch is MI3xx or gfx12x, and
         (3) aiter library is installed. The check function then also verifies
         the corresponding environment variable is enabled.
         i.e.                                             ___
         is_enabled() == current_platform.is_rocm() and      |     checked by
-                        current_platform.is_on_gfx9() and   | @if_aiter_supported
+                        supported ROCm architecture and     | @if_aiter_supported
                         IS_AITER_FOUND and   _______________|
                         cls._AITER_ENABLED   -----> Check by the logic in `is_enabled()`
 
@@ -1655,6 +1678,11 @@ class rocm_aiter_ops:
     @if_aiter_supported
     def is_enabled(cls) -> bool:
         return cls._AITER_ENABLED
+
+    @classmethod
+    @if_aiter_supported
+    def is_sampler_enabled(cls) -> bool:
+        return cls._AITER_ENABLED and is_aiter_sampler_supported()
 
     @classmethod
     @if_aiter_supported

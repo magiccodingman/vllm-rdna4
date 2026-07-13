@@ -5,6 +5,11 @@
 # The version.py should be independent library, and we always import the
 # version library first.  Such assumption is critical for some customization.
 from .version import __version__, __version_tuple__  # isort:skip
+from .rocm_bootstrap import initialize_amdsmi_for_rocm  # isort:skip
+
+# TheRock ROCm preview builds may require AMDSMI initialization before
+# env_override imports torch and touches the HIP runtime.
+initialize_amdsmi_for_rocm()
 
 import typing
 

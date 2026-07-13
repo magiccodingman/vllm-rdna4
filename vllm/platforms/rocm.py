@@ -427,13 +427,17 @@ def _get_backend_priorities(
             ]
 
     backends = []
+    prefer_aiter_unified = bool(rocm_aiter_ops.is_triton_unified_attn_enabled())
+    if prefer_aiter_unified:
+        backends.append(AttentionBackendEnum.ROCM_AITER_UNIFIED_ATTN)
+
     # Keep ROCM_ATTN disabled for KV connectors until connector transfer
     # semantics are validated for its asymmetric native K/V cache views.
     if not use_kv_connector:
         backends.append(AttentionBackendEnum.ROCM_ATTN)
     if rocm_aiter_ops.is_mha_enabled():
         backends.append(AttentionBackendEnum.ROCM_AITER_FA)
-    if is_aiter_found_and_supported():
+    if is_aiter_found_and_supported() and not prefer_aiter_unified:
         backends.append(AttentionBackendEnum.ROCM_AITER_UNIFIED_ATTN)
     backends.append(AttentionBackendEnum.TRITON_ATTN)
     backends.append(AttentionBackendEnum.TURBOQUANT)
@@ -898,8 +902,19 @@ class RocmPlatform(Platform):
 
     @classmethod
     def use_custom_allreduce(cls) -> bool:
-        # We only enable custom allreduce for MI300 series
-        return any(gfx in _GCN_ARCH for gfx in ["gfx94", "gfx95"])
+        if on_mi3xx():
+            return True
+        if not on_gfx12x():
+            return False
+        if not (
+            envs.VLLM_ROCM_USE_AITER
+            and envs.VLLM_ROCM_USE_AITER_CUSTOM_AR
+        ):
+            return False
+
+        from importlib.util import find_spec
+
+        return find_spec("aiter") is not None
 
     @classmethod
     def opaque_attention_op(cls) -> bool:
