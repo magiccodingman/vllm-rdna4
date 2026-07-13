@@ -28,3 +28,17 @@ def test_amdsmi_bootstrap_is_idempotent(monkeypatch):
     assert rocm_bootstrap.initialize_amdsmi_for_rocm()
     assert rocm_bootstrap.initialize_amdsmi_for_rocm()
     assert calls == ["init"]
+
+
+def test_amdsmi_bootstrap_records_failure(monkeypatch):
+    expected = RuntimeError("AMDSMI unavailable")
+
+    def fail_init():
+        raise expected
+
+    monkeypatch.setitem(sys.modules, "amdsmi", SimpleNamespace(amdsmi_init=fail_init))
+    monkeypatch.setenv("VLLM_TARGET_DEVICE", "rocm")
+    rocm_bootstrap._reset_amdsmi_bootstrap_for_tests()
+
+    assert not rocm_bootstrap.initialize_amdsmi_for_rocm()
+    assert rocm_bootstrap.get_amdsmi_bootstrap_error() is expected
