@@ -7,7 +7,7 @@ from __future__ import annotations
 import os
 
 _AMDSMI_INITIALIZED = False
-_AMDSMI_INIT_ERROR: BaseException | None = None
+_AMDSMI_INIT_ERROR: Exception | None = None
 
 
 def initialize_amdsmi_for_rocm() -> bool:
@@ -28,7 +28,7 @@ def initialize_amdsmi_for_rocm() -> bool:
         import amdsmi
 
         amdsmi.amdsmi_init()
-    except BaseException as exc:  # Import-time bootstrap cannot safely log yet.
+    except Exception as exc:  # Import-time bootstrap cannot safely log yet.
         _AMDSMI_INIT_ERROR = exc
         return False
 
@@ -37,7 +37,7 @@ def initialize_amdsmi_for_rocm() -> bool:
     return True
 
 
-def get_amdsmi_bootstrap_error() -> BaseException | None:
+def get_amdsmi_bootstrap_error() -> Exception | None:
     return _AMDSMI_INIT_ERROR
 
 
