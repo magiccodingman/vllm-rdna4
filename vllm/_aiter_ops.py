@@ -55,7 +55,8 @@ IS_AITER_FOUND = is_aiter_found()
 def is_aiter_found_and_supported() -> bool:
     """Check if AITER library is available and platform supports it.
 
-    Checks: platform (ROCm), supported device arch (MI3xx or gfx12x), and library existence.
+    Checks: platform (ROCm), supported device arch (MI3xx or gfx12x),
+    and library existence.
     Does NOT check environment variables - that's handled by rocm_aiter_ops.is_enabled().
 
     This function determines if aiter CAN be used, not if it SHOULD be used.
@@ -1830,9 +1831,12 @@ class rocm_aiter_ops:
 
         device_comm = get_tp_group().device_communicator
         aiter_ar_comm = getattr(device_comm, "aiter_ar_comm", None)
-        return (
-            aiter_ar_comm if isinstance(aiter_ar_comm, AiterCustomAllreduce) else None
-        )
+        if (
+            isinstance(aiter_ar_comm, AiterCustomAllreduce)
+            and not aiter_ar_comm.disabled
+        ):
+            return aiter_ar_comm
+        return None
 
     @classmethod
     @if_aiter_supported
