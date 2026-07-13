@@ -123,13 +123,15 @@ class CudaCommunicator(DeviceCommunicatorBase):
             )
 
         if use_custom_allreduce and self.world_size > 1 and current_platform.is_rocm():
-            # Initialize a custom quick all-reduce implementation for AMD.
-            # Quick reduce is designed as a complement to custom allreduce
-            # (vLLM's or AITER's), so it is initialized for either backend.
-            # Based on quickreduce (https://github.com/mk1-project/quickreduce).
-            # On ROCm, 'use_custom_allreduce==True' means it must currently be
-            # an MI300 series.
-            self.qr_comm = QuickAllReduce(group=self.cpu_group, device=self.device)
+            # QuickReduce remains MI3xx-only. gfx12 may enable the generic
+            # custom-allreduce switch solely to construct AITER CustomAllreduce.
+            from vllm.platforms.rocm import on_mi3xx
+
+            if on_mi3xx():
+                self.qr_comm = QuickAllReduce(
+                    group=self.cpu_group,
+                    device=self.device,
+                )
 
         if self.world_size > 1:
             self._log_all_reduce_backend_selection()
